@@ -1,0 +1,11 @@
+# Ignore Python bytecode files
+*.py[cod]
+__pycache__/
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore temporary files
+*~
+*.swp
+*.tmp
