@@ -38,6 +38,16 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
 
 Datasets included in this repository (`diabetes.csv` and `Ch3.ClevelandData.csv`) are ready to use. Notebooks that reference online sources will automatically download the data when run.
 
+## Contributing
+
+Before submitting changes, please clear the outputs of all notebooks so Git diffs remain readable. You can do this automatically by running:
+
+```bash
+scripts/clear_outputs.sh
+```
+
+This script runs `jupyter nbconvert --clear-output --inplace` on every `.ipynb` file in the repository.
+
 
 ## License
 
