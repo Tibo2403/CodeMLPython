@@ -1,0 +1,12 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+tensorflow
+keras
+openpyxl
+jupyter
+nbconvert
+nbformat
+pytest
