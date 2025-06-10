@@ -28,8 +28,7 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
    ```bash
    pip install -r requirements.txt
    ```
-   Jupyter is required to open the notebooks. If it is not already installed,
-   run `pip install jupyter` as well.
+   This installs Jupyter along with the required libraries.
 3. Launch Jupyter Notebook:
    ```bash
    jupyter notebook
