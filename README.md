@@ -36,3 +36,7 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
 
 Datasets included in this repository (`diabetes.csv` and `Ch3.ClevelandData.xlsx`) are ready to use. Notebooks that reference online sources will automatically download the data when run.
 
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
