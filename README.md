@@ -24,10 +24,12 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
 ## Running the notebooks locally
 
 1. Create a Python environment (Python 3.8 or newer is recommended).
-2. Install dependencies:
+2. Install dependencies from `requirements.txt`:
    ```bash
-   pip install pandas numpy scikit-learn matplotlib keras jupyter
+   pip install -r requirements.txt
    ```
+   Jupyter is required to open the notebooks. If it is not already installed,
+   run `pip install jupyter` as well.
 3. Launch Jupyter Notebook:
    ```bash
    jupyter notebook
