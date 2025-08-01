@@ -23,7 +23,7 @@ htmlcov/
 .ipynb_checkpoints/
 
 # Dataset files
+diabetes.csv
 
 # General
 .DS_Store
-
