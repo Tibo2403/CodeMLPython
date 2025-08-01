@@ -20,7 +20,6 @@ htmlcov/
 .pytest_cache/
 
 # Jupyter Notebook artifacts
-*.ipynb
 .ipynb_checkpoints/
 
 # Dataset files
@@ -28,4 +27,3 @@ diabetes.csv
 
 # General
 .DS_Store
-
