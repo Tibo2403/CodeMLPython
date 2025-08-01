@@ -21,6 +21,8 @@ A collection of Jupyter notebooks demonstrating common machine‑learning workfl
 
 Other notebooks download their data directly from the UCI Machine Learning Repository and do not require local files.
 
+Both CSV files above were obtained from the [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/index.php) and are redistributed here solely for convenience. Usage of these datasets remains subject to the terms listed on their respective repository pages.
+
 ## Running the notebooks locally
 
 1. Create a Python environment (Python 3.8 or newer is recommended).
