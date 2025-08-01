@@ -8,7 +8,7 @@ A collection of Jupyter notebooks demonstrating common machine‑learning workfl
 |----------|-------------|
 | [Breast_cancer_projects.ipynb](Breast_cancer_projects.ipynb) | Classification of the UCI Breast Cancer Wisconsin dataset using KNN, SVM and cross validation. |
 | [DNA+CLASSIFICATION.ipynb](DNA+CLASSIFICATION.ipynb) | Classifies promoter gene sequences from the UCI Molecular Biology dataset. Demonstrates preprocessing DNA sequences and evaluating models such as k‑nearest neighbors and Gaussian processes. |
-| [Diabetes_Udemy+(1).ipynb](Diabetes_Udemy+(1).ipynb) | Uses the Pima Indians Diabetes dataset (`diabetes.csv`) to build a neural network. Includes data standardization, handling missing values and evaluating model performance. |
+| [Diabetes_Udemy.ipynb](Diabetes_Udemy.ipynb) | Uses the Pima Indians Diabetes dataset (`diabetes.csv`) to build a neural network. Includes data standardization, handling missing values and evaluating model performance. |
 | [Heart_disease_project.ipynb](Heart_disease_project.ipynb) | Exploratory data analysis and neural network model on the Cleveland heart disease dataset (`Ch3.ClevelandData.csv`). |
 | [Heart+Disease+Prediction+with+Neural+Networks.ipynb](Heart+Disease+Prediction+with+Neural+Networks.ipynb) | Loads the processed Cleveland dataset from UCI, converts the labels for multi‑class classification and trains a neural network with Keras. |
 
