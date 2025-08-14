@@ -15,7 +15,28 @@ def test_diabetes_dataset_shape():
     assert len(data) == 768  # number of data rows
     assert all(len(r) == 9 for r in data)
 
+
+def is_float(value):
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
+
+def test_diabetes_dataset_values():
+    rows = load_csv(ROOT / 'diabetes.csv')
+    data = rows[1:]
+    assert all(all(is_float(c) for c in row) for row in data)
+    assert all(all(c.strip() for c in row) for row in data)
+
 def test_cleveland_dataset_shape():
     rows = load_csv(ROOT / 'Ch3.ClevelandData.csv')
     assert len(rows) == 303
     assert all(len(r) == 14 for r in rows)
+
+
+def test_cleveland_dataset_values():
+    rows = load_csv(ROOT / 'Ch3.ClevelandData.csv')
+    assert all(all(is_float(c) for c in row) for row in rows)
+    assert all(all(c.strip() for c in row) for row in rows)
