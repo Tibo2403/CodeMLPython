@@ -1,4 +1,5 @@
 import pathlib
+import subprocess
 
 import nbformat
 import pytest
@@ -6,7 +7,12 @@ from nbconvert import PythonExporter
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-NOTEBOOKS = list(ROOT.glob("*.ipynb"))
+NOTEBOOKS = [
+    ROOT / path
+    for path in subprocess.check_output(
+        ["git", "ls-files", "*.ipynb"], cwd=ROOT, text=True
+    ).splitlines()
+]
 
 
 @pytest.mark.parametrize("notebook_path", NOTEBOOKS, ids=lambda p: p.name)
