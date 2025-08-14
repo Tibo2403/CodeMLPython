@@ -1,8 +1,10 @@
 import pathlib
 
-import nbformat
 import pytest
-from nbconvert import PythonExporter
+
+nbformat = pytest.importorskip("nbformat")
+nbconvert = pytest.importorskip("nbconvert")
+PythonExporter = nbconvert.PythonExporter
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]

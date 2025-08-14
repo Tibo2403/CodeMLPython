@@ -1,21 +1,45 @@
 import csv
+import math
 import pathlib
+
+import pytest
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
+
 def load_csv(path):
-    with open(path, newline='') as f:
-        reader = csv.reader(f)
-        return list(reader)
+    with open(path, newline="") as f:
+        return list(csv.reader(f))
 
-def test_diabetes_dataset_shape():
-    rows = load_csv(ROOT / 'diabetes.csv')
-    header, data = rows[0], rows[1:]
-    assert len(header) == 9
-    assert len(data) == 768  # number of data rows
-    assert all(len(r) == 9 for r in data)
 
-def test_cleveland_dataset_shape():
-    rows = load_csv(ROOT / 'Ch3.ClevelandData.csv')
-    assert len(rows) == 303
-    assert all(len(r) == 14 for r in rows)
+def is_valid_number(value):
+    try:
+        return not math.isnan(float(value))
+    except ValueError:
+        return False
+
+
+DATASETS = [
+    ("diabetes.csv", 768, 9, True),
+    ("Ch3.ClevelandData.csv", 303, 14, False),
+]
+
+
+@pytest.mark.parametrize("filename, rows_expected, cols_expected, has_header", DATASETS)
+def test_dataset_shape(filename, rows_expected, cols_expected, has_header):
+    rows = load_csv(ROOT / filename)
+    data = rows[1:] if has_header else rows
+    if has_header:
+        assert len(rows[0]) == cols_expected
+    assert len(data) == rows_expected
+    assert all(len(r) == cols_expected for r in data)
+
+
+@pytest.mark.parametrize("filename, has_header", [(d[0], d[3]) for d in DATASETS])
+def test_dataset_values(filename, has_header):
+    rows = load_csv(ROOT / filename)
+    data = rows[1:] if has_header else rows
+    assert all(all(is_valid_number(c) and c.strip() for c in row) for row in data)
+    assert len(data) == len({tuple(r) for r in data})
+
