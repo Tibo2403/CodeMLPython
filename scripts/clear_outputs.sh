@@ -6,4 +6,5 @@
 set -e
 
 # Use git to list notebooks, avoiding untracked directories
-git ls-files '*.ipynb' | xargs -r jupyter nbconvert --clear-output --inplace
+# The -z and -0 options allow filenames with spaces to be handled safely
+git ls-files -z '*.ipynb' | xargs -0 -r jupyter nbconvert --clear-output --inplace
