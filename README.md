@@ -49,6 +49,12 @@ scripts/clear_outputs.sh
 
 This script runs `jupyter nbconvert --clear-output --inplace` on every `.ipynb` file in the repository.
 
+After clearing notebook outputs, run the test suite to verify your changes:
+
+```bash
+pytest
+```
+
 
 ## License
 
