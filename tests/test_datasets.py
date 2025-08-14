@@ -11,6 +11,7 @@ def load_csv(path):
 def test_diabetes_dataset_shape():
     rows = load_csv(ROOT / 'diabetes.csv')
     header, data = rows[0], rows[1:]
+    assert header == ['Pregnancies','Glucose','BloodPressure','SkinThickness','Insulin','BMI','DiabetesPedigreeFunction','Age','Outcome']
     assert len(header) == 9
     assert len(data) == 768  # number of data rows
     assert all(len(r) == 9 for r in data)
