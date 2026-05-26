@@ -38,6 +38,47 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
 
 4. Open any `.ipynb` file and run it.
 
+## Statistics Calculator
+
+The repository also includes a small automatic calculator for common statistics
+exercises from the course formula sheet:
+
+```bash
+python statistics_calculator.py describe 12 15 18 20
+python statistics_calculator.py normal --mean 100 --std 15 --lower 85 --upper 115
+python statistics_calculator.py ci-mean 12 15 18 20 --confidence 0.95
+python statistics_calculator.py ci-proportion --successes 45 --n 100 --confidence 0.95
+python statistics_calculator.py ci-variance --sample-variance 4 --n 20
+python statistics_calculator.py ci-two-means --case equal-variance --mean1 12 --mean2 10 --std1 2 --std2 3 --n1 15 --n2 12
+python statistics_calculator.py ci-two-proportions --successes1 55 --n1 100 --successes2 45 --n2 100
+python statistics_calculator.py test-mean 12 15 18 20 --mu0 15
+python statistics_calculator.py test-proportion --successes 55 --n 100 --p0 0.5
+python statistics_calculator.py test-two-means --case large --mean1 12 --mean2 10 --std1 2 --std2 3 --n1 40 --n2 45
+python statistics_calculator.py test-variance --sample-variance 4 --n 20 --variance0 4
+python statistics_calculator.py test-variances --variance1 9 --variance2 4 --n1 12 --n2 10
+python statistics_calculator.py test-two-proportions --successes1 55 --n1 100 --successes2 45 --n2 100
+python statistics_calculator.py chi-square-gof --observed 25 25 50 --probabilities 0.25 0.25 0.5
+python statistics_calculator.py chi-square-independence --rows 10,20 20,40
+python statistics_calculator.py regression --x 1 2 3 4 --y 2 3 5 4
+python statistics_calculator.py binomial --n 10 --k 3 --p 0.2
+python statistics_calculator.py poisson --lambda 2 --k 3
+```
+
+Covered cases include confidence intervals and hypothesis tests for one mean,
+one proportion, one variance, two means, paired means, two proportions, two
+variances, chi-square goodness-of-fit, chi-square independence, and simple
+linear regression inference.
+
+It can also be imported in a notebook:
+
+```python
+from statistics_calculator import descriptive_stats, confidence_interval_mean, test_mean
+
+descriptive_stats([12, 15, 18, 20])
+confidence_interval_mean([12, 15, 18, 20], confidence=0.95)
+test_mean([12, 15, 18, 20], hypothesized_mean=15)
+```
+
 ## Maintenance
 
 Clear notebook outputs before committing:
