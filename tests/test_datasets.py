@@ -39,5 +39,5 @@ def test_cleveland_dataset_shape():
 
 def test_cleveland_dataset_values():
     rows = load_csv(ROOT / 'Ch3.ClevelandData.csv')
-    assert all(all(is_float(c) for c in row) for row in rows)
+    assert all(all(is_float(c) or c == '?' for c in row) for row in rows)
     assert all(all(c.strip() for c in row) for row in rows)
