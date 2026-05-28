@@ -1,9 +1,9 @@
-pandas==1.5.3
-numpy==1.23.5
-scikit-learn==1.2.2
-matplotlib==3.7.1
-keras==2.13.1
+pandas==2.3.3
+numpy==1.26.4
+scikit-learn==1.5.2
+matplotlib==3.9.4
+keras==3.14.1
 jupyter==1.0.0
-nbformat==5.9.2
-nbconvert==7.8.0
-pytest==8.4.1
+nbformat==5.10.4
+nbconvert==7.17.1
+pytest==9.0.3
