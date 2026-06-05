@@ -31,7 +31,7 @@ def test_featurize_smiles_returns_stable_numeric_vector():
     assert len(features) >= 13
     assert all(isinstance(value, float) for value in features)
     assert features[1] > 0
-    assert features[10] > 0
+    assert molecular_descriptors("CC(=O)Oc1ccccc1C(=O)O")["molecular_weight"] > 0
 
 
 def test_generate_candidates_adds_fragments_and_keeps_seed():

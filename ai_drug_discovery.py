@@ -32,13 +32,13 @@ except ModuleNotFoundError:
 
 try:
     from rdkit import Chem
-    from rdkit.Chem import AllChem, Crippen, Descriptors, Lipinski, rdMolDescriptors
+    from rdkit.Chem import Crippen, Descriptors, Lipinski, rdFingerprintGenerator, rdMolDescriptors
 except ModuleNotFoundError:
     Chem = None
-    AllChem = None
     Crippen = None
     Descriptors = None
     Lipinski = None
+    rdFingerprintGenerator = None
     rdMolDescriptors = None
 
 
@@ -555,10 +555,10 @@ def rejection_reason(score: CandidateScore) -> str:
 def _featurize_with_rdkit(smiles: str) -> list[float] | None:
     if (
         Chem is None
-        or AllChem is None
         or Descriptors is None
         or Crippen is None
         or Lipinski is None
+        or rdFingerprintGenerator is None
         or rdMolDescriptors is None
     ):
         return None
@@ -567,7 +567,8 @@ def _featurize_with_rdkit(smiles: str) -> list[float] | None:
     if molecule is None:
         return None
 
-    fingerprint = AllChem.GetMorganFingerprintAsBitVect(molecule, radius=2, nBits=MORGAN_BITS)
+    generator = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=MORGAN_BITS)
+    fingerprint = generator.GetFingerprint(molecule)
     fingerprint_bits = [float(bit) for bit in fingerprint.ToBitString()]
     descriptors = [
         float(Descriptors.MolWt(molecule)),
