@@ -1,0 +1,2 @@
+-r requirements.txt
+rdkit==2026.3.3

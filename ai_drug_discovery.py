@@ -233,7 +233,13 @@ def drug_likeness_score(smiles: str) -> tuple[float, bool]:
     penalties += _distance_penalty(complexity_proxy, low=0.0, high=18.0, scale=12.0)
 
     score = max(0.0, min(1.0, 1.0 - penalties))
-    passes_filters = score >= 0.55 and hetero_atoms <= 12
+    passes_filters = (
+        score >= 0.55
+        and hetero_atoms <= 12
+        and molecular_weight <= 500.0
+        and atom_count <= 55.0
+        and complexity_proxy <= 18.0
+    )
     return score, passes_filters
 
 
@@ -268,6 +274,22 @@ def rank_candidates(
 
     if top_n < 1:
         raise ValueError("top_n must be at least 1.")
+    return score_candidates(
+        model,
+        candidates,
+        activity_weight=activity_weight,
+        drug_likeness_weight=drug_likeness_weight,
+    )[:top_n]
+
+
+def score_candidates(
+    model: ActivityModel,
+    candidates: Sequence[str],
+    activity_weight: float = 0.75,
+    drug_likeness_weight: float = 0.25,
+) -> list[CandidateScore]:
+    """Score every candidate without truncating the ranked output."""
+
     _validate_score_weights(activity_weight, drug_likeness_weight)
     if not candidates:
         return []
@@ -295,7 +317,7 @@ def rank_candidates(
             )
         )
 
-    return sorted(scored, key=lambda item: item.final_score, reverse=True)[:top_n]
+    return sorted(scored, key=lambda item: item.final_score, reverse=True)
 
 
 def discover_candidates(
@@ -483,6 +505,53 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
             )
 
 
+def write_rejections(path: Path, scores: Sequence[CandidateScore]) -> None:
+    """Write candidates that failed prioritization filters to a CSV file."""
+
+    rejected = [score for score in scores if not score.passes_filters]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "smiles",
+                "reason",
+                "predicted_activity",
+                "drug_likeness_score",
+                "final_score",
+                "lipinski_violations",
+                "veber_violations",
+            ],
+        )
+        writer.writeheader()
+        for score in rejected:
+            writer.writerow(
+                {
+                    "smiles": score.smiles,
+                    "reason": rejection_reason(score),
+                    "predicted_activity": f"{score.predicted_activity:.4f}",
+                    "drug_likeness_score": f"{score.drug_likeness_score:.4f}",
+                    "final_score": f"{score.final_score:.4f}",
+                    "lipinski_violations": score.lipinski_violations,
+                    "veber_violations": score.veber_violations,
+                }
+            )
+
+
+def rejection_reason(score: CandidateScore) -> str:
+    """Explain why a candidate did not pass prioritization filters."""
+
+    reasons: list[str] = []
+    if score.drug_likeness_score < 0.55:
+        reasons.append("drug_likeness_below_threshold")
+    if score.lipinski_violations > 1:
+        reasons.append("lipinski_violations")
+    if score.veber_violations > 0:
+        reasons.append("veber_violations")
+    if not reasons:
+        reasons.append("failed_filters")
+    return ";".join(reasons)
+
+
 def _featurize_with_rdkit(smiles: str) -> list[float] | None:
     if (
         Chem is None
@@ -636,6 +705,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--evaluate", action="store_true", help="Print leave-one-out model metrics.")
     parser.add_argument("--output", type=Path, default=Path("candidate_molecules.csv"), help="Output CSV path.")
+    parser.add_argument("--rejected-output", type=Path, help="Optional CSV path for rejected candidates.")
     return parser.parse_args()
 
 
@@ -650,15 +720,21 @@ def main() -> None:
     if args.evaluate:
         metrics = evaluate_activity_model(examples)
         print(f"Model metrics: n={metrics.n}, MAE={metrics.mae:.4f}, R2={metrics.r2:.4f}")
-    scores = discover_candidates(
-        examples,
-        seeds,
-        top_n=args.top_n,
+    model = train_activity_model(examples)
+    candidates = generate_candidates(seeds)
+    all_scores = score_candidates(
+        model,
+        candidates,
         activity_weight=args.activity_weight,
         drug_likeness_weight=args.drug_likeness_weight,
     )
+    scores = all_scores[: args.top_n]
     write_scores(args.output, scores)
     print(f"Wrote {len(scores)} ranked candidates to {args.output}")
+    if args.rejected_output:
+        write_rejections(args.rejected_output, all_scores)
+        rejected_count = sum(1 for score in all_scores if not score.passes_filters)
+        print(f"Wrote {rejected_count} rejected candidates to {args.rejected_output}")
 
 
 if __name__ == "__main__":

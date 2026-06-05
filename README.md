@@ -30,13 +30,19 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
    pip install -r requirements.txt
    ```
 
-3. Launch Jupyter:
+3. Optional: install the RDKit-enabled drug discovery environment:
+
+   ```bash
+   pip install -r requirements-drug-discovery.txt
+   ```
+
+4. Launch Jupyter:
 
    ```bash
    jupyter notebook
    ```
 
-4. Open any `.ipynb` file and run it.
+5. Open any `.ipynb` file and run it.
 
 ## Statistics Calculator
 
@@ -102,6 +108,12 @@ supported:
 
 ```bash
 python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv
+```
+
+To also inspect molecules that failed prioritization filters:
+
+```bash
+python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --top-n 10 --output candidate_molecules.csv --rejected-output rejected_molecules.csv
 ```
 
 When RDKit is installed, the method automatically uses canonical SMILES, Morgan

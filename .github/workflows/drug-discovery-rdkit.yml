@@ -1,0 +1,48 @@
+name: Drug Discovery RDKit
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drug-discovery-rdkit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rdkit-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install RDKit drug discovery dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-drug-discovery.txt
+
+      - name: Run drug discovery tests with RDKit
+        run: python -m pytest -q tests/test_ai_drug_discovery.py
+
+      - name: Run example pipeline with rejection report
+        run: |
+          python ai_drug_discovery.py \
+            --training-csv examples/molecules.csv \
+            --seed-csv examples/seeds.csv \
+            --evaluate \
+            --activity-weight 0.70 \
+            --drug-likeness-weight 0.30 \
+            --top-n 10 \
+            --output candidate_molecules.csv \
+            --rejected-output rejected_molecules.csv

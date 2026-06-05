@@ -15,9 +15,12 @@ from ai_drug_discovery import (
     lipinski_violations,
     molecular_descriptors,
     rank_candidates,
+    rejection_reason,
     rdkit_available,
+    score_candidates,
     train_activity_model,
     veber_violations,
+    write_rejections,
     write_scores,
 )
 
@@ -157,3 +160,40 @@ def test_write_scores_exports_descriptors():
     assert "molecular_weight" in rows[0]
     assert "tpsa" in rows[0]
     assert rows[0]["molecular_weight"]
+
+
+def test_score_candidates_returns_full_ranked_list():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+    model = train_activity_model(examples)
+    candidates = generate_candidates(["CCO", "c1ccccc1O"])
+
+    scores = score_candidates(model, candidates)
+
+    assert len(scores) == len(candidates)
+    assert scores == sorted(scores, key=lambda item: item.final_score, reverse=True)
+
+
+def test_write_rejections_exports_filter_failures():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+    model = train_activity_model(examples)
+    candidates = ["C" * 80, "CCO"]
+    scores = score_candidates(model, candidates)
+
+    with tempfile.TemporaryDirectory() as directory:
+        output = pathlib.Path(directory) / "rejected.csv"
+        write_rejections(output, scores)
+        rows = list(csv.DictReader(output.open(newline="", encoding="utf-8")))
+
+    assert rows
+    assert "reason" in rows[0]
+    assert rows[0]["smiles"]
+
+
+def test_rejection_reason_names_failed_filters():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+    model = train_activity_model(examples)
+    rejected = score_candidates(model, ["C" * 80])[-1]
+
+    reason = rejection_reason(rejected)
+
+    assert reason
