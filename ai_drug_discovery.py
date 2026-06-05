@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import html
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -75,6 +77,22 @@ class ModelMetrics:
     mae: float
     r2: float
     n: int
+
+
+@dataclass(frozen=True)
+class RunMetadata:
+    """Parameters and summary values for a drug discovery run."""
+
+    n_examples: int
+    n_seeds: int
+    n_candidates: int
+    n_ranked: int
+    n_rejected: int
+    top_n: int
+    activity_weight: float
+    drug_likeness_weight: float
+    random_state: int
+    rdkit_enabled: bool
 
 
 class ActivityModel(Protocol):
@@ -148,7 +166,7 @@ def featurize_smiles(smiles: str) -> list[float]:
     ]
 
 
-def train_activity_model(examples: Sequence[MoleculeExample]) -> ActivityModel:
+def train_activity_model(examples: Sequence[MoleculeExample], random_state: int = 42) -> ActivityModel:
     """Train a QSAR-like model that predicts activity from SMILES features."""
 
     if len(examples) < 3:
@@ -167,7 +185,7 @@ def train_activity_model(examples: Sequence[MoleculeExample]) -> ActivityModel:
                 "regressor",
                 RandomForestRegressor(
                     n_estimators=120,
-                    random_state=42,
+                    random_state=random_state,
                     min_samples_leaf=1,
                 ),
             ),
@@ -326,10 +344,11 @@ def discover_candidates(
     top_n: int = 20,
     activity_weight: float = 0.75,
     drug_likeness_weight: float = 0.25,
+    random_state: int = 42,
 ) -> list[CandidateScore]:
     """End-to-end automated discovery method."""
 
-    model = train_activity_model(labelled_molecules)
+    model = train_activity_model(labelled_molecules, random_state=random_state)
     candidates = generate_candidates(seed_smiles)
     return rank_candidates(
         model,
@@ -340,7 +359,7 @@ def discover_candidates(
     )
 
 
-def evaluate_activity_model(examples: Sequence[MoleculeExample]) -> ModelMetrics:
+def evaluate_activity_model(examples: Sequence[MoleculeExample], random_state: int = 42) -> ModelMetrics:
     """Evaluate the activity model with leave-one-out validation."""
 
     if len(examples) < 4:
@@ -350,7 +369,7 @@ def evaluate_activity_model(examples: Sequence[MoleculeExample]) -> ModelMetrics
     predicted: list[float] = []
     for index, held_out in enumerate(examples):
         training = [example for position, example in enumerate(examples) if position != index]
-        model = train_activity_model(training)
+        model = train_activity_model(training, random_state=random_state)
         prediction = model.predict([featurize_smiles(held_out.smiles)])[0]
         actual.append(held_out.activity)
         predicted.append(float(prediction))
@@ -552,6 +571,71 @@ def rejection_reason(score: CandidateScore) -> str:
     return ";".join(reasons)
 
 
+def write_metrics(path: Path, metadata: RunMetadata, metrics: ModelMetrics | None) -> None:
+    """Write run metadata and optional model metrics as JSON."""
+
+    payload = {
+        "n_examples": metadata.n_examples,
+        "n_seeds": metadata.n_seeds,
+        "n_candidates": metadata.n_candidates,
+        "n_ranked": metadata.n_ranked,
+        "n_rejected": metadata.n_rejected,
+        "top_n": metadata.top_n,
+        "activity_weight": metadata.activity_weight,
+        "drug_likeness_weight": metadata.drug_likeness_weight,
+        "random_state": metadata.random_state,
+        "rdkit_enabled": metadata.rdkit_enabled,
+        "model_metrics": None,
+    }
+    if metrics is not None:
+        payload["model_metrics"] = {
+            "n": metrics.n,
+            "mae": metrics.mae,
+            "r2": metrics.r2,
+        }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_html_report(
+    path: Path,
+    ranked_scores: Sequence[CandidateScore],
+    all_scores: Sequence[CandidateScore],
+    metadata: RunMetadata,
+    metrics: ModelMetrics | None,
+) -> None:
+    """Write a compact standalone HTML report for a discovery run."""
+
+    rejected = [score for score in all_scores if not score.passes_filters]
+    html_text = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AI Drug Discovery Report</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 32px; color: #1f2933; }}
+    h1, h2 {{ color: #102a43; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 16px 0 28px; }}
+    th, td {{ border: 1px solid #d9e2ec; padding: 8px; text-align: left; font-size: 14px; }}
+    th {{ background: #f0f4f8; }}
+    .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
+    .metric {{ border: 1px solid #d9e2ec; padding: 12px; background: #f8fafc; }}
+    .muted {{ color: #627d98; }}
+  </style>
+</head>
+<body>
+  <h1>AI Drug Discovery Report</h1>
+  <p class="muted">Educational triage report. Candidates require chemistry review and experimental validation.</p>
+  { _html_summary(metadata, metrics) }
+  <h2>Top Candidates</h2>
+  { _html_score_table(ranked_scores, include_reason=False) }
+  <h2>Rejected Candidates</h2>
+  { _html_score_table(rejected, include_reason=True) }
+</body>
+</html>
+"""
+    path.write_text(html_text, encoding="utf-8")
+
+
 def _featurize_with_rdkit(smiles: str) -> list[float] | None:
     if (
         Chem is None
@@ -679,6 +763,66 @@ def _format_descriptor(value: Any) -> str:
     return str(value)
 
 
+def _html_summary(metadata: RunMetadata, metrics: ModelMetrics | None) -> str:
+    metric_items = [
+        ("Examples", metadata.n_examples),
+        ("Seeds", metadata.n_seeds),
+        ("Candidates", metadata.n_candidates),
+        ("Ranked", metadata.n_ranked),
+        ("Rejected", metadata.n_rejected),
+        ("Top N", metadata.top_n),
+        ("Activity weight", f"{metadata.activity_weight:.2f}"),
+        ("Drug-likeness weight", f"{metadata.drug_likeness_weight:.2f}"),
+        ("Random state", metadata.random_state),
+        ("RDKit enabled", metadata.rdkit_enabled),
+    ]
+    if metrics is not None:
+        metric_items.extend(
+            [
+                ("MAE", f"{metrics.mae:.4f}"),
+                ("R2", f"{metrics.r2:.4f}"),
+            ]
+        )
+    cards = "\n".join(
+        f'<div class="metric"><strong>{html.escape(str(label))}</strong><br>{html.escape(str(value))}</div>'
+        for label, value in metric_items
+    )
+    return f'<section class="summary">{cards}</section>'
+
+
+def _html_score_table(scores: Sequence[CandidateScore], include_reason: bool) -> str:
+    if not scores:
+        return "<p>No candidates.</p>"
+    headers = [
+        "SMILES",
+        "Predicted activity",
+        "Drug-likeness",
+        "Final score",
+        "Passes filters",
+        "Lipinski",
+        "Veber",
+    ]
+    if include_reason:
+        headers.append("Reason")
+    header_html = "".join(f"<th>{html.escape(header)}</th>" for header in headers)
+    rows = []
+    for score in scores:
+        values: list[Any] = [
+            score.smiles,
+            f"{score.predicted_activity:.4f}",
+            f"{score.drug_likeness_score:.4f}",
+            f"{score.final_score:.4f}",
+            score.passes_filters,
+            score.lipinski_violations,
+            score.veber_violations,
+        ]
+        if include_reason:
+            values.append(rejection_reason(score))
+        row_html = "".join(f"<td>{html.escape(str(value))}</td>" for value in values)
+        rows.append(f"<tr>{row_html}</tr>")
+    return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+
+
 def _validate_score_weights(activity_weight: float, drug_likeness_weight: float) -> None:
     if activity_weight < 0 or drug_likeness_weight < 0:
         raise ValueError("Score weights must be non-negative.")
@@ -705,8 +849,11 @@ def _parse_args() -> argparse.Namespace:
         help="Final score weight for drug-likeness.",
     )
     parser.add_argument("--evaluate", action="store_true", help="Print leave-one-out model metrics.")
+    parser.add_argument("--random-state", type=int, default=42, help="Random state used by ML models.")
     parser.add_argument("--output", type=Path, default=Path("candidate_molecules.csv"), help="Output CSV path.")
     parser.add_argument("--rejected-output", type=Path, help="Optional CSV path for rejected candidates.")
+    parser.add_argument("--metrics-output", type=Path, help="Optional JSON path for run metrics.")
+    parser.add_argument("--report-output", type=Path, help="Optional HTML report path.")
     return parser.parse_args()
 
 
@@ -718,10 +865,12 @@ def main() -> None:
         seeds.extend(load_seed_smiles(args.seed_csv))
     if not seeds:
         raise SystemExit("Provide at least one seed through --seed or --seed-csv.")
-    if args.evaluate:
-        metrics = evaluate_activity_model(examples)
+    metrics = None
+    if args.evaluate or args.metrics_output or args.report_output:
+        metrics = evaluate_activity_model(examples, random_state=args.random_state)
+    if args.evaluate and metrics is not None:
         print(f"Model metrics: n={metrics.n}, MAE={metrics.mae:.4f}, R2={metrics.r2:.4f}")
-    model = train_activity_model(examples)
+    model = train_activity_model(examples, random_state=args.random_state)
     candidates = generate_candidates(seeds)
     all_scores = score_candidates(
         model,
@@ -730,12 +879,29 @@ def main() -> None:
         drug_likeness_weight=args.drug_likeness_weight,
     )
     scores = all_scores[: args.top_n]
+    metadata = RunMetadata(
+        n_examples=len(examples),
+        n_seeds=len(seeds),
+        n_candidates=len(candidates),
+        n_ranked=len(scores),
+        n_rejected=sum(1 for score in all_scores if not score.passes_filters),
+        top_n=args.top_n,
+        activity_weight=args.activity_weight,
+        drug_likeness_weight=args.drug_likeness_weight,
+        random_state=args.random_state,
+        rdkit_enabled=rdkit_available(),
+    )
     write_scores(args.output, scores)
     print(f"Wrote {len(scores)} ranked candidates to {args.output}")
     if args.rejected_output:
         write_rejections(args.rejected_output, all_scores)
-        rejected_count = sum(1 for score in all_scores if not score.passes_filters)
-        print(f"Wrote {rejected_count} rejected candidates to {args.rejected_output}")
+        print(f"Wrote {metadata.n_rejected} rejected candidates to {args.rejected_output}")
+    if args.metrics_output:
+        write_metrics(args.metrics_output, metadata, metrics)
+        print(f"Wrote run metrics to {args.metrics_output}")
+    if args.report_output:
+        write_html_report(args.report_output, scores, all_scores, metadata, metrics)
+        print(f"Wrote HTML report to {args.report_output}")
 
 
 if __name__ == "__main__":

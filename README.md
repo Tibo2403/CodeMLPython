@@ -107,14 +107,18 @@ Batch seed CSV, model metrics, and custom multi-objective weights are also
 supported:
 
 ```bash
-python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv
+python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --random-state 42 --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv
 ```
 
 To also inspect molecules that failed prioritization filters:
 
 ```bash
-python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --top-n 10 --output candidate_molecules.csv --rejected-output rejected_molecules.csv
+python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --random-state 42 --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv --rejected-output rejected_molecules.csv --metrics-output metrics.json --report-output drug_discovery_report.html
 ```
+
+`metrics.json` records run parameters and model metrics for reproducibility.
+`drug_discovery_report.html` provides a standalone summary with top candidates,
+rejected molecules, filters, scores, and model metrics.
 
 When RDKit is installed, the method automatically uses canonical SMILES, Morgan
 fingerprints, molecular weight, LogP, TPSA, hydrogen-bond donor/acceptor counts,

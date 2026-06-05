@@ -1,9 +1,11 @@
 import csv
+import json
 import pathlib
 import tempfile
 
 from ai_drug_discovery import (
     MoleculeExample,
+    RunMetadata,
     canonicalize_smiles,
     discover_candidates,
     drug_likeness_score,
@@ -20,6 +22,8 @@ from ai_drug_discovery import (
     score_candidates,
     train_activity_model,
     veber_violations,
+    write_html_report,
+    write_metrics,
     write_rejections,
     write_scores,
 )
@@ -144,6 +148,15 @@ def test_evaluate_activity_model_returns_metrics():
     assert isinstance(metrics.r2, float)
 
 
+def test_random_state_keeps_model_evaluation_reproducible():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+
+    first = evaluate_activity_model(examples, random_state=123)
+    second = evaluate_activity_model(examples, random_state=123)
+
+    assert first == second
+
+
 def test_write_scores_exports_descriptors():
     examples = [
         MoleculeExample("CCO", 0.20),
@@ -197,3 +210,56 @@ def test_rejection_reason_names_failed_filters():
     reason = rejection_reason(rejected)
 
     assert reason
+
+
+def test_write_metrics_exports_json_payload():
+    metadata = RunMetadata(
+        n_examples=10,
+        n_seeds=3,
+        n_candidates=20,
+        n_ranked=5,
+        n_rejected=2,
+        top_n=5,
+        activity_weight=0.7,
+        drug_likeness_weight=0.3,
+        random_state=123,
+        rdkit_enabled=rdkit_available(),
+    )
+    metrics = evaluate_activity_model(load_examples(pathlib.Path("examples/molecules.csv")), random_state=123)
+
+    with tempfile.TemporaryDirectory() as directory:
+        output = pathlib.Path(directory) / "metrics.json"
+        write_metrics(output, metadata, metrics)
+        payload = json.loads(output.read_text(encoding="utf-8"))
+
+    assert payload["random_state"] == 123
+    assert payload["model_metrics"]["n"] == metrics.n
+    assert payload["activity_weight"] == 0.7
+
+
+def test_write_html_report_creates_readable_report():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+    model = train_activity_model(examples, random_state=123)
+    all_scores = score_candidates(model, generate_candidates(["CCO"]), activity_weight=0.7, drug_likeness_weight=0.3)
+    ranked = all_scores[:3]
+    metadata = RunMetadata(
+        n_examples=len(examples),
+        n_seeds=1,
+        n_candidates=len(all_scores),
+        n_ranked=len(ranked),
+        n_rejected=sum(1 for score in all_scores if not score.passes_filters),
+        top_n=3,
+        activity_weight=0.7,
+        drug_likeness_weight=0.3,
+        random_state=123,
+        rdkit_enabled=rdkit_available(),
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        output = pathlib.Path(directory) / "report.html"
+        write_html_report(output, ranked, all_scores, metadata, metrics=None)
+        report = output.read_text(encoding="utf-8")
+
+    assert "AI Drug Discovery Report" in report
+    assert "Top Candidates" in report
+    assert "Random state" in report

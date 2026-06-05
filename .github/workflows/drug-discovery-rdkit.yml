@@ -45,4 +45,6 @@ jobs:
             --drug-likeness-weight 0.30 \
             --top-n 10 \
             --output candidate_molecules.csv \
-            --rejected-output rejected_molecules.csv
+            --rejected-output rejected_molecules.csv \
+            --metrics-output metrics.json \
+            --report-output drug_discovery_report.html
