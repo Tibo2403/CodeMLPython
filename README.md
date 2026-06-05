@@ -79,6 +79,30 @@ confidence_interval_mean([12, 15, 18, 20], confidence=0.95)
 test_mean([12, 15, 18, 20], hypothesized_mean=15)
 ```
 
+## AI Drug Discovery Method
+
+`ai_drug_discovery.py` provides an automatable method for finding new candidate
+molecules for drug research:
+
+1. collect labelled molecules in a CSV with `smiles` and `activity` columns;
+2. transform SMILES strings into numeric molecular descriptors;
+3. train a QSAR-like activity model with scikit-learn;
+4. generate new candidates by adding or substituting small chemical fragments;
+5. score candidates by predicted activity and simple drug-likeness filters;
+6. export the ranked molecules for chemistry review and lab validation.
+
+Example:
+
+```bash
+python ai_drug_discovery.py --training-csv molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
+```
+
+The implementation is intentionally lightweight so it can run in this repository
+without specialist chemistry dependencies. For real medicinal chemistry work,
+replace the simple SMILES features with RDKit fingerprints/descriptors, train on
+validated assay data, add ADMET and toxicity models, and require expert review
+before synthesis or biological testing.
+
 ## Maintenance
 
 Clear notebook outputs before committing:
