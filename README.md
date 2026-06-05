@@ -97,6 +97,13 @@ Example:
 python ai_drug_discovery.py --training-csv examples/molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
 ```
 
+Batch seed CSV, model metrics, and custom multi-objective weights are also
+supported:
+
+```bash
+python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv
+```
+
 When RDKit is installed, the method automatically uses canonical SMILES, Morgan
 fingerprints, molecular weight, LogP, TPSA, hydrogen-bond donor/acceptor counts,
 rotatable bonds, ring counts, Lipinski rule-of-five violations, and Veber oral

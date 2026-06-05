@@ -68,6 +68,15 @@ class CandidateScore:
     veber_violations: int = 0
 
 
+@dataclass(frozen=True)
+class ModelMetrics:
+    """Basic regression metrics for the activity model."""
+
+    mae: float
+    r2: float
+    n: int
+
+
 class ActivityModel(Protocol):
     """Minimal model interface used by the ranking workflow."""
 
@@ -252,11 +261,14 @@ def rank_candidates(
     model: ActivityModel,
     candidates: Sequence[str],
     top_n: int = 20,
+    activity_weight: float = 0.75,
+    drug_likeness_weight: float = 0.25,
 ) -> list[CandidateScore]:
     """Predict activity, apply filters, and return the best candidates."""
 
     if top_n < 1:
         raise ValueError("top_n must be at least 1.")
+    _validate_score_weights(activity_weight, drug_likeness_weight)
     if not candidates:
         return []
 
@@ -270,7 +282,7 @@ def rank_candidates(
         likeness, passes_filters = drug_likeness_score(smiles)
         lipinski = lipinski_violations(smiles)
         veber = veber_violations(smiles)
-        final_score = float(prediction) * 0.75 + likeness * 0.25
+        final_score = float(prediction) * activity_weight + likeness * drug_likeness_weight
         scored.append(
             CandidateScore(
                 smiles=smiles,
@@ -290,12 +302,43 @@ def discover_candidates(
     labelled_molecules: Sequence[MoleculeExample],
     seed_smiles: Sequence[str],
     top_n: int = 20,
+    activity_weight: float = 0.75,
+    drug_likeness_weight: float = 0.25,
 ) -> list[CandidateScore]:
     """End-to-end automated discovery method."""
 
     model = train_activity_model(labelled_molecules)
     candidates = generate_candidates(seed_smiles)
-    return rank_candidates(model, candidates, top_n=top_n)
+    return rank_candidates(
+        model,
+        candidates,
+        top_n=top_n,
+        activity_weight=activity_weight,
+        drug_likeness_weight=drug_likeness_weight,
+    )
+
+
+def evaluate_activity_model(examples: Sequence[MoleculeExample]) -> ModelMetrics:
+    """Evaluate the activity model with leave-one-out validation."""
+
+    if len(examples) < 4:
+        raise ValueError("At least four labelled molecules are required for evaluation.")
+
+    actual: list[float] = []
+    predicted: list[float] = []
+    for index, held_out in enumerate(examples):
+        training = [example for position, example in enumerate(examples) if position != index]
+        model = train_activity_model(training)
+        prediction = model.predict([featurize_smiles(held_out.smiles)])[0]
+        actual.append(held_out.activity)
+        predicted.append(float(prediction))
+
+    mae = sum(abs(left - right) for left, right in zip(actual, predicted)) / len(actual)
+    mean_actual = sum(actual) / len(actual)
+    total_sum_squares = sum((value - mean_actual) ** 2 for value in actual)
+    residual_sum_squares = sum((left - right) ** 2 for left, right in zip(actual, predicted))
+    r2 = 0.0 if total_sum_squares == 0 else 1.0 - (residual_sum_squares / total_sum_squares)
+    return ModelMetrics(mae=mae, r2=r2, n=len(examples))
 
 
 def rdkit_available() -> bool:
@@ -380,6 +423,16 @@ def load_examples(path: Path) -> list[MoleculeExample]:
         if not required.issubset(reader.fieldnames or set()):
             raise ValueError("CSV must contain 'smiles' and 'activity' columns.")
         return [MoleculeExample(row["smiles"], float(row["activity"])) for row in reader]
+
+
+def load_seed_smiles(path: Path) -> list[str]:
+    """Load seed SMILES from a CSV with a smiles column."""
+
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if "smiles" not in (reader.fieldnames or set()):
+            raise ValueError("Seed CSV must contain a 'smiles' column.")
+        return [row["smiles"] for row in reader if row.get("smiles")]
 
 
 def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
@@ -556,13 +609,32 @@ def _format_descriptor(value: Any) -> str:
     return str(value)
 
 
+def _validate_score_weights(activity_weight: float, drug_likeness_weight: float) -> None:
+    if activity_weight < 0 or drug_likeness_weight < 0:
+        raise ValueError("Score weights must be non-negative.")
+    if activity_weight == 0 and drug_likeness_weight == 0:
+        raise ValueError("At least one score weight must be greater than zero.")
+    total = activity_weight + drug_likeness_weight
+    if not math.isclose(total, 1.0, rel_tol=1e-9, abs_tol=1e-9):
+        raise ValueError("Score weights must sum to 1.0.")
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Automated AI-assisted molecule discovery from labelled SMILES data."
     )
     parser.add_argument("--training-csv", type=Path, required=True, help="CSV with smiles,activity columns.")
-    parser.add_argument("--seed", nargs="+", required=True, help="Seed SMILES strings to mutate.")
+    parser.add_argument("--seed", nargs="+", default=[], help="Seed SMILES strings to mutate.")
+    parser.add_argument("--seed-csv", type=Path, help="CSV with a smiles column containing seed molecules.")
     parser.add_argument("--top-n", type=int, default=20, help="Number of candidates to keep.")
+    parser.add_argument("--activity-weight", type=float, default=0.75, help="Final score weight for predicted activity.")
+    parser.add_argument(
+        "--drug-likeness-weight",
+        type=float,
+        default=0.25,
+        help="Final score weight for drug-likeness.",
+    )
+    parser.add_argument("--evaluate", action="store_true", help="Print leave-one-out model metrics.")
     parser.add_argument("--output", type=Path, default=Path("candidate_molecules.csv"), help="Output CSV path.")
     return parser.parse_args()
 
@@ -570,7 +642,21 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     examples = load_examples(args.training_csv)
-    scores = discover_candidates(examples, args.seed, top_n=args.top_n)
+    seeds = list(args.seed)
+    if args.seed_csv:
+        seeds.extend(load_seed_smiles(args.seed_csv))
+    if not seeds:
+        raise SystemExit("Provide at least one seed through --seed or --seed-csv.")
+    if args.evaluate:
+        metrics = evaluate_activity_model(examples)
+        print(f"Model metrics: n={metrics.n}, MAE={metrics.mae:.4f}, R2={metrics.r2:.4f}")
+    scores = discover_candidates(
+        examples,
+        seeds,
+        top_n=args.top_n,
+        activity_weight=args.activity_weight,
+        drug_likeness_weight=args.drug_likeness_weight,
+    )
     write_scores(args.output, scores)
     print(f"Wrote {len(scores)} ranked candidates to {args.output}")
 

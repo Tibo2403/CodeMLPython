@@ -7,12 +7,16 @@ from ai_drug_discovery import (
     canonicalize_smiles,
     discover_candidates,
     drug_likeness_score,
+    evaluate_activity_model,
     featurize_smiles,
     generate_candidates,
     load_examples,
+    load_seed_smiles,
     lipinski_violations,
     molecular_descriptors,
+    rank_candidates,
     rdkit_available,
+    train_activity_model,
     veber_violations,
     write_scores,
 )
@@ -81,6 +85,37 @@ def test_discover_candidates_ranks_generated_molecules():
     assert all(score.veber_violations >= 0 for score in scores)
 
 
+def test_score_weights_change_final_ranking_score():
+    examples = [
+        MoleculeExample("CCO", 0.20),
+        MoleculeExample("CCN", 0.35),
+        MoleculeExample("c1ccccc1O", 0.75),
+    ]
+    model = train_activity_model(examples)
+
+    activity_first = rank_candidates(model, ["CCO"], top_n=1, activity_weight=1.0, drug_likeness_weight=0.0)[0]
+    likeness_first = rank_candidates(model, ["CCO"], top_n=1, activity_weight=0.0, drug_likeness_weight=1.0)[0]
+
+    assert activity_first.final_score == activity_first.predicted_activity
+    assert likeness_first.final_score == likeness_first.drug_likeness_score
+
+
+def test_score_weights_must_sum_to_one():
+    examples = [
+        MoleculeExample("CCO", 0.20),
+        MoleculeExample("CCN", 0.35),
+        MoleculeExample("c1ccccc1O", 0.75),
+    ]
+    model = train_activity_model(examples)
+
+    try:
+        rank_candidates(model, ["CCO"], activity_weight=0.8, drug_likeness_weight=0.8)
+    except ValueError as error:
+        assert "sum to 1.0" in str(error)
+    else:
+        raise AssertionError("Expected invalid score weights to raise ValueError.")
+
+
 def test_example_molecule_csv_runs_end_to_end():
     examples = load_examples(pathlib.Path("examples/molecules.csv"))
 
@@ -88,6 +123,22 @@ def test_example_molecule_csv_runs_end_to_end():
 
     assert len(examples) >= 3
     assert len(scores) == 3
+
+
+def test_seed_csv_loads_smiles_column():
+    seeds = load_seed_smiles(pathlib.Path("examples/seeds.csv"))
+
+    assert seeds == ["CCO", "c1ccccc1O", "CCN"]
+
+
+def test_evaluate_activity_model_returns_metrics():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+
+    metrics = evaluate_activity_model(examples)
+
+    assert metrics.n == len(examples)
+    assert metrics.mae >= 0
+    assert isinstance(metrics.r2, float)
 
 
 def test_write_scores_exports_descriptors():
