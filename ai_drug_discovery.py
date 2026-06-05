@@ -17,7 +17,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Protocol, Sequence
+from typing import Any, Iterable, Protocol, Sequence
 
 try:
     import numpy as np
@@ -228,6 +228,26 @@ def drug_likeness_score(smiles: str) -> tuple[float, bool]:
     return score, passes_filters
 
 
+def molecular_descriptors(smiles: str) -> dict[str, Any]:
+    """Return interpretable descriptors for reports and CSV exports."""
+
+    rdkit_descriptors = _molecular_descriptors_with_rdkit(smiles)
+    if rdkit_descriptors is not None:
+        return rdkit_descriptors
+
+    features = featurize_smiles(smiles)
+    return {
+        "molecular_weight": features[10],
+        "logp": "",
+        "tpsa": "",
+        "h_donors": "",
+        "h_acceptors": features[4],
+        "rotatable_bonds": "",
+        "rings": features[6] / 2.0,
+        "heavy_atoms": features[2],
+    }
+
+
 def rank_candidates(
     model: ActivityModel,
     candidates: Sequence[str],
@@ -376,10 +396,19 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
                 "passes_filters",
                 "lipinski_violations",
                 "veber_violations",
+                "molecular_weight",
+                "logp",
+                "tpsa",
+                "h_donors",
+                "h_acceptors",
+                "rotatable_bonds",
+                "rings",
+                "heavy_atoms",
             ],
         )
         writer.writeheader()
         for score in scores:
+            descriptors = molecular_descriptors(score.smiles)
             writer.writerow(
                 {
                     "smiles": score.smiles,
@@ -389,6 +418,14 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
                     "passes_filters": score.passes_filters,
                     "lipinski_violations": score.lipinski_violations,
                     "veber_violations": score.veber_violations,
+                    "molecular_weight": _format_descriptor(descriptors["molecular_weight"]),
+                    "logp": _format_descriptor(descriptors["logp"]),
+                    "tpsa": _format_descriptor(descriptors["tpsa"]),
+                    "h_donors": _format_descriptor(descriptors["h_donors"]),
+                    "h_acceptors": _format_descriptor(descriptors["h_acceptors"]),
+                    "rotatable_bonds": _format_descriptor(descriptors["rotatable_bonds"]),
+                    "rings": _format_descriptor(descriptors["rings"]),
+                    "heavy_atoms": _format_descriptor(descriptors["heavy_atoms"]),
                 }
             )
 
@@ -454,6 +491,26 @@ def _rdkit_drug_likeness_score(smiles: str) -> tuple[float, bool] | None:
     return score, lipinski <= 1 and veber == 0 and score >= 0.55
 
 
+def _molecular_descriptors_with_rdkit(smiles: str) -> dict[str, Any] | None:
+    if Chem is None or Descriptors is None or Crippen is None or Lipinski is None or rdMolDescriptors is None:
+        return None
+
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return None
+
+    return {
+        "molecular_weight": Descriptors.MolWt(molecule),
+        "logp": Crippen.MolLogP(molecule),
+        "tpsa": rdMolDescriptors.CalcTPSA(molecule),
+        "h_donors": Lipinski.NumHDonors(molecule),
+        "h_acceptors": Lipinski.NumHAcceptors(molecule),
+        "rotatable_bonds": Lipinski.NumRotatableBonds(molecule),
+        "rings": rdMolDescriptors.CalcNumRings(molecule),
+        "heavy_atoms": molecule.GetNumHeavyAtoms(),
+    }
+
+
 def _add_candidate(candidates: set[str], smiles: str) -> None:
     canonical = canonicalize_smiles(smiles)
     if canonical:
@@ -489,6 +546,14 @@ def _distance_penalty(value: float, low: float, high: float, scale: float) -> fl
 
 def _euclidean_distance(left: Sequence[float], right: Sequence[float]) -> float:
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right)))
+
+
+def _format_descriptor(value: Any) -> str:
+    if value == "":
+        return ""
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
 
 
 def _parse_args() -> argparse.Namespace:

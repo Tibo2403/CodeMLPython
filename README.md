@@ -94,7 +94,7 @@ molecules for drug research:
 Example:
 
 ```bash
-python ai_drug_discovery.py --training-csv molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
+python ai_drug_discovery.py --training-csv examples/molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
 ```
 
 When RDKit is installed, the method automatically uses canonical SMILES, Morgan
@@ -102,6 +102,10 @@ fingerprints, molecular weight, LogP, TPSA, hydrogen-bond donor/acceptor counts,
 rotatable bonds, ring counts, Lipinski rule-of-five violations, and Veber oral
 bioavailability filters. Without RDKit, it falls back to lightweight descriptors
 so the example remains runnable in simple Python environments.
+
+The exported CSV includes predicted activity, final ranking score, Lipinski and
+Veber violation counts, molecular weight, LogP, TPSA, hydrogen-bond
+donor/acceptor counts, rotatable bonds, ring count, and heavy atom count.
 
 The implementation is intentionally lightweight so it can run in this repository
 without specialist chemistry dependencies. For real medicinal chemistry work,
@@ -126,6 +130,12 @@ If you have pytest installed, you can also run:
 
 ```bash
 python -m pytest
+```
+
+Audit Python dependencies for known vulnerabilities:
+
+```bash
+python -m pip_audit -r requirements.txt --progress-spinner off
 ```
 
 ## License
