@@ -23,7 +23,7 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
 
 ## Running Locally
 
-1. Create a Python environment with Python 3.10 or newer.
+1. Create a Python environment with Python 3.11 or newer.
 2. Install dependencies:
 
    ```bash
