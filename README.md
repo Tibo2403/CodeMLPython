@@ -119,7 +119,13 @@ scripts/clear_outputs.sh
 Run the lightweight checks:
 
 ```bash
-pytest
+python scripts/run_tests.py
+```
+
+If you have pytest installed, you can also run:
+
+```bash
+python -m pytest
 ```
 
 ## License
