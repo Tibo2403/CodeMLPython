@@ -30,9 +30,21 @@ except ModuleNotFoundError:
     Pipeline = None
     StandardScaler = None
 
+try:
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, Crippen, Descriptors, Lipinski, rdMolDescriptors
+except ModuleNotFoundError:
+    Chem = None
+    AllChem = None
+    Crippen = None
+    Descriptors = None
+    Lipinski = None
+    rdMolDescriptors = None
+
 
 ATOM_PATTERN = re.compile(r"Cl|Br|[BCNOFPSIbcno]")
 DEFAULT_FRAGMENTS = ("F", "Cl", "Br", "C", "N", "O", "C(=O)N", "OC", "CN")
+MORGAN_BITS = 128
 
 
 @dataclass(frozen=True)
@@ -52,6 +64,8 @@ class CandidateScore:
     drug_likeness_score: float
     final_score: float
     passes_filters: bool
+    lipinski_violations: int = 0
+    veber_violations: int = 0
 
 
 class ActivityModel(Protocol):
@@ -85,10 +99,14 @@ class SimilarityActivityModel:
 def featurize_smiles(smiles: str) -> list[float]:
     """Convert a SMILES string into simple numeric descriptors.
 
-    For production work, replace this with RDKit descriptors/fingerprints.
-    Keeping this function dependency-light makes the workflow runnable in this
-    repository and easy to test in CI.
+    When RDKit is installed, the vector combines medicinal chemistry
+    descriptors and a Morgan fingerprint. Otherwise, the function falls back to
+    a dependency-light descriptor set so the repository remains runnable in CI.
     """
+
+    rdkit_features = _featurize_with_rdkit(smiles)
+    if rdkit_features is not None:
+        return rdkit_features
 
     atoms = ATOM_PATTERN.findall(smiles)
     atom_count = len(atoms)
@@ -163,17 +181,17 @@ def generate_candidates(
 
     candidates: set[str] = set()
     for smiles in seed_smiles:
-        normalized = smiles.strip()
+        normalized = canonicalize_smiles(smiles.strip())
         if not normalized:
             continue
         candidates.add(normalized)
 
         for fragment in fragments:
-            candidates.add(f"{normalized}{fragment}")
+            _add_candidate(candidates, f"{normalized}{fragment}")
             if normalized.endswith("C"):
-                candidates.add(f"{normalized[:-1]}{fragment}")
+                _add_candidate(candidates, f"{normalized[:-1]}{fragment}")
             if "c1ccccc1" in normalized:
-                candidates.add(normalized.replace("c1ccccc1", f"c1ccc({fragment})cc1", 1))
+                _add_candidate(candidates, normalized.replace("c1ccccc1", f"c1ccc({fragment})cc1", 1))
 
             if len(candidates) >= max_candidates:
                 return sorted(candidates)
@@ -187,6 +205,10 @@ def drug_likeness_score(smiles: str) -> tuple[float, bool]:
     The score loosely imitates early filters such as molecular weight and
     polarity bounds. It is a triage heuristic, not a medicinal chemistry rule.
     """
+
+    rdkit_score = _rdkit_drug_likeness_score(smiles)
+    if rdkit_score is not None:
+        return rdkit_score
 
     features = featurize_smiles(smiles)
     atom_count = features[1]
@@ -226,6 +248,8 @@ def rank_candidates(
 
     for smiles, prediction in zip(candidates, predictions):
         likeness, passes_filters = drug_likeness_score(smiles)
+        lipinski = lipinski_violations(smiles)
+        veber = veber_violations(smiles)
         final_score = float(prediction) * 0.75 + likeness * 0.25
         scored.append(
             CandidateScore(
@@ -234,6 +258,8 @@ def rank_candidates(
                 drug_likeness_score=likeness,
                 final_score=final_score,
                 passes_filters=passes_filters,
+                lipinski_violations=lipinski,
+                veber_violations=veber,
             )
         )
 
@@ -250,6 +276,79 @@ def discover_candidates(
     model = train_activity_model(labelled_molecules)
     candidates = generate_candidates(seed_smiles)
     return rank_candidates(model, candidates, top_n=top_n)
+
+
+def rdkit_available() -> bool:
+    """Return whether the optional RDKit chemistry backend is available."""
+
+    return Chem is not None
+
+
+def canonicalize_smiles(smiles: str) -> str:
+    """Canonicalize a SMILES string with RDKit when possible."""
+
+    if not smiles:
+        return ""
+    if Chem is None:
+        return smiles
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return ""
+    return Chem.MolToSmiles(molecule, canonical=True)
+
+
+def lipinski_violations(smiles: str) -> int:
+    """Count Lipinski rule-of-five violations.
+
+    Returns a heuristic fallback count when RDKit is unavailable.
+    """
+
+    if Chem is None or Descriptors is None or Crippen is None or Lipinski is None:
+        features = featurize_smiles(smiles)
+        molecular_weight = features[10]
+        hetero_atoms = features[4]
+        polarity_proxy = features[11]
+        return sum(
+            [
+                molecular_weight > 500.0,
+                hetero_atoms > 10.0,
+                polarity_proxy > 0.45,
+            ]
+        )
+
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return 4
+
+    return sum(
+        [
+            Descriptors.MolWt(molecule) > 500.0,
+            Crippen.MolLogP(molecule) > 5.0,
+            Lipinski.NumHDonors(molecule) > 5,
+            Lipinski.NumHAcceptors(molecule) > 10,
+        ]
+    )
+
+
+def veber_violations(smiles: str) -> int:
+    """Count Veber oral bioavailability filter violations."""
+
+    if Chem is None or Descriptors is None or rdMolDescriptors is None:
+        features = featurize_smiles(smiles)
+        complexity_proxy = features[12]
+        polarity_proxy = features[11]
+        return sum([complexity_proxy > 18.0, polarity_proxy > 0.45])
+
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return 2
+
+    return sum(
+        [
+            Lipinski.NumRotatableBonds(molecule) > 10,
+            rdMolDescriptors.CalcTPSA(molecule) > 140.0,
+        ]
+    )
 
 
 def load_examples(path: Path) -> list[MoleculeExample]:
@@ -275,6 +374,8 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
                 "drug_likeness_score",
                 "final_score",
                 "passes_filters",
+                "lipinski_violations",
+                "veber_violations",
             ],
         )
         writer.writeheader()
@@ -286,8 +387,77 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
                     "drug_likeness_score": f"{score.drug_likeness_score:.4f}",
                     "final_score": f"{score.final_score:.4f}",
                     "passes_filters": score.passes_filters,
+                    "lipinski_violations": score.lipinski_violations,
+                    "veber_violations": score.veber_violations,
                 }
             )
+
+
+def _featurize_with_rdkit(smiles: str) -> list[float] | None:
+    if (
+        Chem is None
+        or AllChem is None
+        or Descriptors is None
+        or Crippen is None
+        or Lipinski is None
+        or rdMolDescriptors is None
+    ):
+        return None
+
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return None
+
+    fingerprint = AllChem.GetMorganFingerprintAsBitVect(molecule, radius=2, nBits=MORGAN_BITS)
+    fingerprint_bits = [float(bit) for bit in fingerprint.ToBitString()]
+    descriptors = [
+        float(Descriptors.MolWt(molecule)),
+        float(Crippen.MolLogP(molecule)),
+        float(rdMolDescriptors.CalcTPSA(molecule)),
+        float(Lipinski.NumHDonors(molecule)),
+        float(Lipinski.NumHAcceptors(molecule)),
+        float(Lipinski.NumRotatableBonds(molecule)),
+        float(rdMolDescriptors.CalcNumRings(molecule)),
+        float(molecule.GetNumHeavyAtoms()),
+        float(lipinski_violations(smiles)),
+        float(veber_violations(smiles)),
+    ]
+    return descriptors + fingerprint_bits
+
+
+def _rdkit_drug_likeness_score(smiles: str) -> tuple[float, bool] | None:
+    if Chem is None or Descriptors is None or Crippen is None or Lipinski is None or rdMolDescriptors is None:
+        return None
+
+    molecule = Chem.MolFromSmiles(smiles)
+    if molecule is None:
+        return 0.0, False
+
+    molecular_weight = Descriptors.MolWt(molecule)
+    logp = Crippen.MolLogP(molecule)
+    tpsa = rdMolDescriptors.CalcTPSA(molecule)
+    donors = Lipinski.NumHDonors(molecule)
+    acceptors = Lipinski.NumHAcceptors(molecule)
+    rotatable_bonds = Lipinski.NumRotatableBonds(molecule)
+
+    penalties = 0.0
+    penalties += _distance_penalty(molecular_weight, low=120.0, high=500.0, scale=120.0)
+    penalties += _distance_penalty(logp, low=-1.0, high=5.0, scale=4.0)
+    penalties += _distance_penalty(tpsa, low=20.0, high=140.0, scale=80.0)
+    penalties += _distance_penalty(float(donors), low=0.0, high=5.0, scale=8.0)
+    penalties += _distance_penalty(float(acceptors), low=0.0, high=10.0, scale=10.0)
+    penalties += _distance_penalty(float(rotatable_bonds), low=0.0, high=10.0, scale=10.0)
+
+    lipinski = lipinski_violations(smiles)
+    veber = veber_violations(smiles)
+    score = max(0.0, min(1.0, 1.0 - penalties - (lipinski * 0.08) - (veber * 0.08)))
+    return score, lipinski <= 1 and veber == 0 and score >= 0.55
+
+
+def _add_candidate(candidates: set[str], smiles: str) -> None:
+    canonical = canonicalize_smiles(smiles)
+    if canonical:
+        candidates.add(canonical)
 
 
 def _approximate_molecular_weight(atoms: Sequence[str]) -> float:

@@ -85,10 +85,10 @@ test_mean([12, 15, 18, 20], hypothesized_mean=15)
 molecules for drug research:
 
 1. collect labelled molecules in a CSV with `smiles` and `activity` columns;
-2. transform SMILES strings into numeric molecular descriptors;
+2. transform SMILES strings into molecular descriptors;
 3. train a QSAR-like activity model with scikit-learn;
 4. generate new candidates by adding or substituting small chemical fragments;
-5. score candidates by predicted activity and simple drug-likeness filters;
+5. score candidates by predicted activity, Lipinski filters, Veber filters, and drug-likeness;
 6. export the ranked molecules for chemistry review and lab validation.
 
 Example:
@@ -97,11 +97,16 @@ Example:
 python ai_drug_discovery.py --training-csv molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
 ```
 
+When RDKit is installed, the method automatically uses canonical SMILES, Morgan
+fingerprints, molecular weight, LogP, TPSA, hydrogen-bond donor/acceptor counts,
+rotatable bonds, ring counts, Lipinski rule-of-five violations, and Veber oral
+bioavailability filters. Without RDKit, it falls back to lightweight descriptors
+so the example remains runnable in simple Python environments.
+
 The implementation is intentionally lightweight so it can run in this repository
 without specialist chemistry dependencies. For real medicinal chemistry work,
-replace the simple SMILES features with RDKit fingerprints/descriptors, train on
-validated assay data, add ADMET and toxicity models, and require expert review
-before synthesis or biological testing.
+train on validated assay data, add ADMET and toxicity models, and require expert
+review before synthesis or biological testing.
 
 ## Maintenance
 
