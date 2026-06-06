@@ -36,19 +36,25 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
    pip install -r requirements-dev.txt
    ```
 
-4. Optional: install the RDKit-enabled drug discovery environment:
+4. Install the local package for the `codeml-drug-discovery` command:
+
+   ```bash
+   pip install --no-deps -e .
+   ```
+
+5. Optional: install the RDKit-enabled drug discovery environment:
 
    ```bash
    pip install -r requirements-drug-discovery.txt
    ```
 
-5. Launch Jupyter:
+6. Launch Jupyter:
 
    ```bash
    jupyter notebook
    ```
 
-6. Open any `.ipynb` file and run it.
+7. Open any `.ipynb` file and run it.
 
 ## Statistics Calculator
 
@@ -93,7 +99,7 @@ test_mean([12, 15, 18, 20], hypothesized_mean=15)
 
 ## AI Drug Discovery Method
 
-`ai_drug_discovery.py` provides an automatable method for finding new candidate
+The installable `codeml-drug-discovery` command provides an automatable method for finding new candidate
 molecules for drug research:
 
 1. collect labelled molecules in a CSV with `smiles` and `activity` columns;
@@ -106,20 +112,20 @@ molecules for drug research:
 Example:
 
 ```bash
-python ai_drug_discovery.py --training-csv examples/molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
+codeml-drug-discovery --training-csv examples/molecules.csv --seed "CCO" "c1ccccc1O" --top-n 10 --output candidate_molecules.csv
 ```
 
 Batch seed CSV, model metrics, and custom multi-objective weights are also
 supported:
 
 ```bash
-python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --random-state 42 --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv
+codeml-drug-discovery --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --random-state 42 --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv
 ```
 
 To also inspect molecules that failed prioritization filters:
 
 ```bash
-python ai_drug_discovery.py --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --random-state 42 --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv --rejected-output rejected_molecules.csv --metrics-output metrics.json --report-output drug_discovery_report.html
+codeml-drug-discovery --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --evaluate --random-state 42 --activity-weight 0.70 --drug-likeness-weight 0.30 --top-n 10 --output candidate_molecules.csv --rejected-output rejected_molecules.csv --metrics-output metrics.json --report-output drug_discovery_report.html
 ```
 
 `metrics.json` records run parameters and model metrics for reproducibility.

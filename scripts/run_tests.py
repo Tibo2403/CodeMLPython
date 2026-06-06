@@ -44,6 +44,7 @@ def iter_test_functions(module: ModuleType):
 
 def run_tests(test_files: list[Path]) -> int:
     sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "src"))
     failures = 0
     total = 0
 

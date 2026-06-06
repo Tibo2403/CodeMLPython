@@ -35,4 +35,4 @@ jobs:
           python -m pip install pip-audit==2.10.0
 
       - name: Audit Python dependencies
-        run: python -m pip_audit -r requirements.txt --progress-spinner off
+        run: python -m pip_audit -r requirements.txt --no-deps --disable-pip --progress-spinner off

@@ -1,3 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codemlpython"
+version = "0.1.0"
+description = "Educational medical machine-learning notebooks and AI-assisted drug discovery utilities."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "pandas==3.0.3",
+  "numpy==2.4.6",
+  "scikit-learn==1.9.0",
+  "matplotlib==3.10.9",
+  "keras==3.14.1",
+  "jupyter==1.1.1",
+  "nbformat==5.10.4",
+  "nbconvert==7.17.1",
+  "pytest==9.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pip-audit==2.10.0",
+  "ruff==0.15.16",
+]
+drug-discovery = [
+  "rdkit==2026.3.3",
+]
+
+[project.scripts]
+codeml-drug-discovery = "codeml.drug_discovery.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 120
@@ -23,4 +61,5 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"ai_drug_discovery.py" = ["E402", "F403"]
 "tests/*.py" = ["B011"]

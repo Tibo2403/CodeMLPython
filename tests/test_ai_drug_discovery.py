@@ -3,7 +3,7 @@ import json
 import pathlib
 import tempfile
 
-from ai_drug_discovery import (
+from codeml.drug_discovery import (
     MoleculeExample,
     RunMetadata,
     canonicalize_smiles,
