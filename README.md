@@ -107,7 +107,9 @@ molecules for drug research:
 3. train a QSAR-like activity model with scikit-learn;
 4. generate new candidates by adding or substituting small chemical fragments;
 5. score candidates by predicted activity, Lipinski filters, Veber filters, and drug-likeness;
-6. export the ranked molecules for chemistry review and lab validation.
+6. calibrate conformal uncertainty and applicability-domain reliability when at least four labelled molecules are
+   available;
+7. export the ranked molecules for chemistry review and lab validation.
 
 Example:
 
@@ -132,15 +134,50 @@ codeml-drug-discovery --training-csv examples/molecules.csv --seed-csv examples/
 `drug_discovery_report.html` provides a standalone summary with top candidates,
 rejected molecules, filters, scores, and model metrics.
 
+### Conformal Applicability Domain
+
+By default, `codeml-drug-discovery` adds a reliability layer inspired by
+conformal prediction. It uses leave-one-out residuals on the labelled molecules
+to create an uncertainty interval around each predicted activity, then compares
+each generated molecule to the training set in normalized descriptor space.
+
+The extra output columns are:
+
+- `prediction_lower` and `prediction_upper`: conformal activity interval.
+- `uncertainty_width`: width of the prediction interval.
+- `applicability_distance`: nearest normalized distance to the training molecules.
+- `applicability_label`: `in_domain`, `near_domain`, or `out_of_domain`.
+- `reliability_label`: `high`, `medium`, or `low`.
+- `decision`: `prioritize`, `review`, or `deprioritize`.
+
+Use a different confidence level when you want wider or narrower intervals:
+
+```bash
+codeml-drug-discovery --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --conformal-confidence 0.95 --top-n 10 --output candidate_molecules.csv --metrics-output metrics.json --report-output drug_discovery_report.html
+```
+
+Disable the reliability layer for a faster baseline run:
+
+```bash
+codeml-drug-discovery --training-csv examples/molecules.csv --seed-csv examples/seeds.csv --disable-conformal-reliability --top-n 10 --output candidate_molecules.csv
+```
+
+Interpretation guide:
+
+- `prioritize`: good lower-bound activity, acceptable medicinal filters, and reliable applicability domain.
+- `review`: promising or uncertain molecule that needs expert inspection before prioritization.
+- `deprioritize`: weak lower-bound activity even after accounting for uncertainty.
+
 When RDKit is installed, the method automatically uses canonical SMILES, Morgan
 fingerprints, molecular weight, LogP, TPSA, hydrogen-bond donor/acceptor counts,
 rotatable bonds, ring counts, Lipinski rule-of-five violations, and Veber oral
 bioavailability filters. Without RDKit, it falls back to lightweight descriptors
 so the example remains runnable in simple Python environments.
 
-The exported CSV includes predicted activity, final ranking score, Lipinski and
-Veber violation counts, molecular weight, LogP, TPSA, hydrogen-bond
-donor/acceptor counts, rotatable bonds, ring count, and heavy atom count.
+The exported CSV includes predicted activity, conformal interval, applicability
+labels, reliability decision, final ranking score, Lipinski and Veber violation
+counts, molecular weight, LogP, TPSA, hydrogen-bond donor/acceptor counts,
+rotatable bonds, ring count, and heavy atom count.
 
 The implementation is intentionally lightweight so it can run in this repository
 without specialist chemistry dependencies. For real medicinal chemistry work,

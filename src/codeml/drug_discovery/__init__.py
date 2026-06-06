@@ -2,9 +2,11 @@
 
 from codeml.drug_discovery.pipeline import (
     CandidateScore,
+    ConformalReliabilityModel,
     ModelMetrics,
     MoleculeExample,
     RunMetadata,
+    build_conformal_reliability_model,
     canonicalize_smiles,
     discover_candidates,
     drug_likeness_score,
@@ -18,6 +20,7 @@ from codeml.drug_discovery.pipeline import (
     rank_candidates,
     rdkit_available,
     rejection_reason,
+    reliability_assessment,
     score_candidates,
     train_activity_model,
     veber_violations,
@@ -29,9 +32,11 @@ from codeml.drug_discovery.pipeline import (
 
 __all__ = [
     "CandidateScore",
+    "ConformalReliabilityModel",
     "ModelMetrics",
     "MoleculeExample",
     "RunMetadata",
+    "build_conformal_reliability_model",
     "canonicalize_smiles",
     "discover_candidates",
     "drug_likeness_score",
@@ -45,6 +50,7 @@ __all__ = [
     "rank_candidates",
     "rdkit_available",
     "rejection_reason",
+    "reliability_assessment",
     "score_candidates",
     "train_activity_model",
     "veber_violations",

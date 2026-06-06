@@ -6,6 +6,7 @@ import tempfile
 from codeml.drug_discovery import (
     MoleculeExample,
     RunMetadata,
+    build_conformal_reliability_model,
     canonicalize_smiles,
     discover_candidates,
     drug_likeness_score,
@@ -19,6 +20,7 @@ from codeml.drug_discovery import (
     rank_candidates,
     rdkit_available,
     rejection_reason,
+    reliability_assessment,
     score_candidates,
     train_activity_model,
     veber_violations,
@@ -132,6 +134,37 @@ def test_example_molecule_csv_runs_end_to_end():
     assert len(scores) == 3
 
 
+def test_conformal_reliability_model_scores_candidate_uncertainty():
+    examples = load_examples(pathlib.Path("examples/molecules.csv"))
+    model = train_activity_model(examples, random_state=123)
+    reliability_model = build_conformal_reliability_model(examples, confidence=0.9, random_state=123)
+
+    scores = score_candidates(model, ["CCO"], reliability_model=reliability_model)
+
+    assert reliability_model.confidence == 0.9
+    assert reliability_model.residual_quantile >= 0
+    assert scores[0].prediction_lower is not None
+    assert scores[0].prediction_upper is not None
+    assert scores[0].prediction_lower <= scores[0].predicted_activity <= scores[0].prediction_upper
+    assert scores[0].uncertainty_width is not None
+    assert scores[0].applicability_label in {"in_domain", "near_domain", "out_of_domain"}
+    assert scores[0].reliability_label in {"high", "medium", "low"}
+    assert scores[0].decision in {"prioritize", "review", "deprioritize"}
+
+
+def test_reliability_assessment_can_be_disabled():
+    assessment = reliability_assessment(
+        predicted_activity=0.7,
+        features=featurize_smiles("CCO"),
+        passes_filters=True,
+        reliability_model=None,
+    )
+
+    assert assessment["prediction_lower"] is None
+    assert assessment["applicability_label"] == "not_evaluated"
+    assert assessment["decision"] == "review"
+
+
 def test_seed_csv_loads_smiles_column():
     seeds = load_seed_smiles(pathlib.Path("examples/seeds.csv"))
 
@@ -173,6 +206,9 @@ def test_write_scores_exports_descriptors():
     assert "molecular_weight" in rows[0]
     assert "tpsa" in rows[0]
     assert rows[0]["molecular_weight"]
+    assert "prediction_lower" in rows[0]
+    assert "applicability_label" in rows[0]
+    assert "decision" in rows[0]
 
 
 def test_score_candidates_returns_full_ranked_list():
@@ -200,6 +236,7 @@ def test_write_rejections_exports_filter_failures():
     assert rows
     assert "reason" in rows[0]
     assert rows[0]["smiles"]
+    assert "reliability_label" in rows[0]
 
 
 def test_rejection_reason_names_failed_filters():
@@ -224,6 +261,10 @@ def test_write_metrics_exports_json_payload():
         drug_likeness_weight=0.3,
         random_state=123,
         rdkit_enabled=rdkit_available(),
+        conformal_enabled=True,
+        conformal_confidence=0.9,
+        conformal_residual_quantile=0.12,
+        applicability_threshold=1.5,
     )
     metrics = evaluate_activity_model(load_examples(pathlib.Path("examples/molecules.csv")), random_state=123)
 
@@ -235,6 +276,8 @@ def test_write_metrics_exports_json_payload():
     assert payload["random_state"] == 123
     assert payload["model_metrics"]["n"] == metrics.n
     assert payload["activity_weight"] == 0.7
+    assert payload["conformal_enabled"] is True
+    assert payload["conformal_confidence"] == 0.9
 
 
 def test_write_html_report_creates_readable_report():
@@ -263,3 +306,5 @@ def test_write_html_report_creates_readable_report():
     assert "AI Drug Discovery Report" in report
     assert "Top Candidates" in report
     assert "Random state" in report
+    assert "Conformal reliability" in report
+    assert "Decision" in report

@@ -48,6 +48,7 @@ except ModuleNotFoundError:
 ATOM_PATTERN = re.compile(r"Cl|Br|[BCNOFPSIbcno]")
 DEFAULT_FRAGMENTS = ("F", "Cl", "Br", "C", "N", "O", "C(=O)N", "OC", "CN")
 MORGAN_BITS = 128
+DEFAULT_CONFORMAL_CONFIDENCE = 0.90
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,13 @@ class CandidateScore:
     passes_filters: bool
     lipinski_violations: int = 0
     veber_violations: int = 0
+    prediction_lower: float | None = None
+    prediction_upper: float | None = None
+    uncertainty_width: float | None = None
+    applicability_distance: float | None = None
+    applicability_label: str = "not_evaluated"
+    reliability_label: str = "not_evaluated"
+    decision: str = "review"
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,18 @@ class ModelMetrics:
     mae: float
     r2: float
     n: int
+
+
+@dataclass(frozen=True)
+class ConformalReliabilityModel:
+    """Calibrated uncertainty and applicability-domain model."""
+
+    confidence: float
+    residual_quantile: float
+    feature_means: list[float]
+    feature_scales: list[float]
+    scaled_training_features: list[list[float]]
+    in_domain_threshold: float
 
 
 @dataclass(frozen=True)
@@ -94,6 +114,10 @@ class RunMetadata:
     drug_likeness_weight: float
     random_state: int
     rdkit_enabled: bool
+    conformal_enabled: bool = False
+    conformal_confidence: float | None = None
+    conformal_residual_quantile: float | None = None
+    applicability_threshold: float | None = None
 
 
 class ActivityModel(Protocol):
@@ -288,6 +312,7 @@ def rank_candidates(
     top_n: int = 20,
     activity_weight: float = 0.75,
     drug_likeness_weight: float = 0.25,
+    reliability_model: ConformalReliabilityModel | None = None,
 ) -> list[CandidateScore]:
     """Predict activity, apply filters, and return the best candidates."""
 
@@ -298,6 +323,7 @@ def rank_candidates(
         candidates,
         activity_weight=activity_weight,
         drug_likeness_weight=drug_likeness_weight,
+        reliability_model=reliability_model,
     )[:top_n]
 
 
@@ -306,6 +332,7 @@ def score_candidates(
     candidates: Sequence[str],
     activity_weight: float = 0.75,
     drug_likeness_weight: float = 0.25,
+    reliability_model: ConformalReliabilityModel | None = None,
 ) -> list[CandidateScore]:
     """Score every candidate without truncating the ranked output."""
 
@@ -313,17 +340,24 @@ def score_candidates(
     if not candidates:
         return []
 
-    feature_matrix = [featurize_smiles(smiles) for smiles in candidates]
+    raw_feature_matrix = [featurize_smiles(smiles) for smiles in candidates]
+    model_feature_matrix: Sequence[Sequence[float]] = raw_feature_matrix
     if np is not None and not isinstance(model, SimilarityActivityModel):
-        feature_matrix = np.array(feature_matrix, dtype=float)
-    predictions = model.predict(feature_matrix)
+        model_feature_matrix = np.array(raw_feature_matrix, dtype=float)
+    predictions = model.predict(model_feature_matrix)
     scored: list[CandidateScore] = []
 
-    for smiles, prediction in zip(candidates, predictions):
+    for smiles, features, prediction in zip(candidates, raw_feature_matrix, predictions):
         likeness, passes_filters = drug_likeness_score(smiles)
         lipinski = lipinski_violations(smiles)
         veber = veber_violations(smiles)
         final_score = float(prediction) * activity_weight + likeness * drug_likeness_weight
+        reliability = reliability_assessment(
+            float(prediction),
+            features,
+            passes_filters=passes_filters,
+            reliability_model=reliability_model,
+        )
         scored.append(
             CandidateScore(
                 smiles=smiles,
@@ -333,6 +367,13 @@ def score_candidates(
                 passes_filters=passes_filters,
                 lipinski_violations=lipinski,
                 veber_violations=veber,
+                prediction_lower=reliability["prediction_lower"],
+                prediction_upper=reliability["prediction_upper"],
+                uncertainty_width=reliability["uncertainty_width"],
+                applicability_distance=reliability["applicability_distance"],
+                applicability_label=str(reliability["applicability_label"]),
+                reliability_label=str(reliability["reliability_label"]),
+                decision=str(reliability["decision"]),
             )
         )
 
@@ -346,10 +387,18 @@ def discover_candidates(
     activity_weight: float = 0.75,
     drug_likeness_weight: float = 0.25,
     random_state: int = 42,
+    conformal_confidence: float | None = DEFAULT_CONFORMAL_CONFIDENCE,
 ) -> list[CandidateScore]:
     """End-to-end automated discovery method."""
 
     model = train_activity_model(labelled_molecules, random_state=random_state)
+    reliability_model = None
+    if conformal_confidence is not None and len(labelled_molecules) >= 4:
+        reliability_model = build_conformal_reliability_model(
+            labelled_molecules,
+            confidence=conformal_confidence,
+            random_state=random_state,
+        )
     candidates = generate_candidates(seed_smiles)
     return rank_candidates(
         model,
@@ -357,6 +406,7 @@ def discover_candidates(
         top_n=top_n,
         activity_weight=activity_weight,
         drug_likeness_weight=drug_likeness_weight,
+        reliability_model=reliability_model,
     )
 
 
@@ -381,6 +431,90 @@ def evaluate_activity_model(examples: Sequence[MoleculeExample], random_state: i
     residual_sum_squares = sum((left - right) ** 2 for left, right in zip(actual, predicted))
     r2 = 0.0 if total_sum_squares == 0 else 1.0 - (residual_sum_squares / total_sum_squares)
     return ModelMetrics(mae=mae, r2=r2, n=len(examples))
+
+
+def build_conformal_reliability_model(
+    examples: Sequence[MoleculeExample],
+    confidence: float = DEFAULT_CONFORMAL_CONFIDENCE,
+    random_state: int = 42,
+) -> ConformalReliabilityModel:
+    """Calibrate conformal uncertainty and applicability distance.
+
+    The residual quantile comes from leave-one-out predictions. The
+    applicability threshold is based on nearest-neighbour distances between
+    normalized training molecules.
+    """
+
+    if len(examples) < 4:
+        raise ValueError("At least four labelled molecules are required for conformal reliability.")
+    if not 0.5 < confidence < 1.0:
+        raise ValueError("Conformal confidence must be greater than 0.5 and lower than 1.0.")
+
+    residuals: list[float] = []
+    for index, held_out in enumerate(examples):
+        training = [example for position, example in enumerate(examples) if position != index]
+        model = train_activity_model(training, random_state=random_state)
+        prediction = model.predict([featurize_smiles(held_out.smiles)])[0]
+        residuals.append(abs(held_out.activity - float(prediction)))
+
+    training_features = [featurize_smiles(example.smiles) for example in examples]
+    means, scales = _feature_normalizer(training_features)
+    scaled_training_features = [_scale_features(features, means, scales) for features in training_features]
+    nearest_distances = _nearest_training_distances(scaled_training_features)
+    threshold = max(_percentile(nearest_distances, 0.75) * 1.5, 1e-9)
+
+    return ConformalReliabilityModel(
+        confidence=confidence,
+        residual_quantile=_conformal_quantile(residuals, confidence),
+        feature_means=means,
+        feature_scales=scales,
+        scaled_training_features=scaled_training_features,
+        in_domain_threshold=threshold,
+    )
+
+
+def reliability_assessment(
+    predicted_activity: float,
+    features: Sequence[float],
+    passes_filters: bool,
+    reliability_model: ConformalReliabilityModel | None,
+) -> dict[str, float | str | None]:
+    """Return conformal interval, applicability label, reliability, and decision."""
+
+    if reliability_model is None:
+        return {
+            "prediction_lower": None,
+            "prediction_upper": None,
+            "uncertainty_width": None,
+            "applicability_distance": None,
+            "applicability_label": "not_evaluated",
+            "reliability_label": "not_evaluated",
+            "decision": "review",
+        }
+
+    residual = reliability_model.residual_quantile
+    lower = predicted_activity - residual
+    upper = predicted_activity + residual
+    distance = _applicability_distance(features, reliability_model)
+    applicability_label = _applicability_label(distance, reliability_model.in_domain_threshold)
+    reliability_label = _reliability_label(residual * 2.0, applicability_label)
+    decision = _candidate_decision(
+        predicted_activity=predicted_activity,
+        lower_bound=lower,
+        passes_filters=passes_filters,
+        applicability_label=applicability_label,
+        reliability_label=reliability_label,
+    )
+
+    return {
+        "prediction_lower": lower,
+        "prediction_upper": upper,
+        "uncertainty_width": residual * 2.0,
+        "applicability_distance": distance,
+        "applicability_label": applicability_label,
+        "reliability_label": reliability_label,
+        "decision": decision,
+    }
 
 
 def rdkit_available() -> bool:
@@ -491,6 +625,13 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
                 "passes_filters",
                 "lipinski_violations",
                 "veber_violations",
+                "prediction_lower",
+                "prediction_upper",
+                "uncertainty_width",
+                "applicability_distance",
+                "applicability_label",
+                "reliability_label",
+                "decision",
                 "molecular_weight",
                 "logp",
                 "tpsa",
@@ -513,6 +654,13 @@ def write_scores(path: Path, scores: Sequence[CandidateScore]) -> None:
                     "passes_filters": score.passes_filters,
                     "lipinski_violations": score.lipinski_violations,
                     "veber_violations": score.veber_violations,
+                    "prediction_lower": _format_optional_float(score.prediction_lower),
+                    "prediction_upper": _format_optional_float(score.prediction_upper),
+                    "uncertainty_width": _format_optional_float(score.uncertainty_width),
+                    "applicability_distance": _format_optional_float(score.applicability_distance),
+                    "applicability_label": score.applicability_label,
+                    "reliability_label": score.reliability_label,
+                    "decision": score.decision,
                     "molecular_weight": _format_descriptor(descriptors["molecular_weight"]),
                     "logp": _format_descriptor(descriptors["logp"]),
                     "tpsa": _format_descriptor(descriptors["tpsa"]),
@@ -540,6 +688,13 @@ def write_rejections(path: Path, scores: Sequence[CandidateScore]) -> None:
                 "final_score",
                 "lipinski_violations",
                 "veber_violations",
+                "prediction_lower",
+                "prediction_upper",
+                "uncertainty_width",
+                "applicability_distance",
+                "applicability_label",
+                "reliability_label",
+                "decision",
             ],
         )
         writer.writeheader()
@@ -553,6 +708,13 @@ def write_rejections(path: Path, scores: Sequence[CandidateScore]) -> None:
                     "final_score": f"{score.final_score:.4f}",
                     "lipinski_violations": score.lipinski_violations,
                     "veber_violations": score.veber_violations,
+                    "prediction_lower": _format_optional_float(score.prediction_lower),
+                    "prediction_upper": _format_optional_float(score.prediction_upper),
+                    "uncertainty_width": _format_optional_float(score.uncertainty_width),
+                    "applicability_distance": _format_optional_float(score.applicability_distance),
+                    "applicability_label": score.applicability_label,
+                    "reliability_label": score.reliability_label,
+                    "decision": score.decision,
                 }
             )
 
@@ -586,6 +748,10 @@ def write_metrics(path: Path, metadata: RunMetadata, metrics: ModelMetrics | Non
         "drug_likeness_weight": metadata.drug_likeness_weight,
         "random_state": metadata.random_state,
         "rdkit_enabled": metadata.rdkit_enabled,
+        "conformal_enabled": metadata.conformal_enabled,
+        "conformal_confidence": metadata.conformal_confidence,
+        "conformal_residual_quantile": metadata.conformal_residual_quantile,
+        "applicability_threshold": metadata.applicability_threshold,
         "model_metrics": None,
     }
     if metrics is not None:
@@ -756,12 +922,110 @@ def _euclidean_distance(left: Sequence[float], right: Sequence[float]) -> float:
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right)))
 
 
+def _feature_normalizer(features: Sequence[Sequence[float]]) -> tuple[list[float], list[float]]:
+    feature_count = len(features[0])
+    means: list[float] = []
+    scales: list[float] = []
+    for index in range(feature_count):
+        values = [feature[index] for feature in features]
+        mean = sum(values) / len(values)
+        variance = sum((value - mean) ** 2 for value in values) / len(values)
+        scale = math.sqrt(variance) or 1.0
+        means.append(mean)
+        scales.append(scale)
+    return means, scales
+
+
+def _scale_features(features: Sequence[float], means: Sequence[float], scales: Sequence[float]) -> list[float]:
+    return [(value - mean) / scale for value, mean, scale in zip(features, means, scales)]
+
+
+def _nearest_training_distances(scaled_features: Sequence[Sequence[float]]) -> list[float]:
+    distances: list[float] = []
+    for index, features in enumerate(scaled_features):
+        neighbours = [
+            _euclidean_distance(features, other)
+            for position, other in enumerate(scaled_features)
+            if position != index
+        ]
+        distances.append(min(neighbours) if neighbours else 0.0)
+    return distances
+
+
+def _applicability_distance(features: Sequence[float], model: ConformalReliabilityModel) -> float:
+    scaled_features = _scale_features(features, model.feature_means, model.feature_scales)
+    return min(_euclidean_distance(scaled_features, known) for known in model.scaled_training_features)
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    index = min(len(sorted_values) - 1, max(0, math.ceil(percentile * len(sorted_values)) - 1))
+    return sorted_values[index]
+
+
+def _conformal_quantile(residuals: Sequence[float], confidence: float) -> float:
+    sorted_residuals = sorted(residuals)
+    rank = math.ceil((len(sorted_residuals) + 1) * confidence)
+    index = min(len(sorted_residuals) - 1, max(0, rank - 1))
+    return sorted_residuals[index]
+
+
+def _applicability_label(distance: float, threshold: float) -> str:
+    if distance <= threshold:
+        return "in_domain"
+    if distance <= threshold * 1.5:
+        return "near_domain"
+    return "out_of_domain"
+
+
+def _reliability_label(uncertainty_width: float, applicability_label: str) -> str:
+    if applicability_label == "out_of_domain":
+        return "low"
+    if uncertainty_width <= 0.25 and applicability_label == "in_domain":
+        return "high"
+    if uncertainty_width <= 0.75 and applicability_label in {"in_domain", "near_domain"}:
+        return "medium"
+    return "low"
+
+
+def _candidate_decision(
+    predicted_activity: float,
+    lower_bound: float,
+    passes_filters: bool,
+    applicability_label: str,
+    reliability_label: str,
+) -> str:
+    if not passes_filters or applicability_label == "out_of_domain":
+        return "review"
+    if lower_bound >= 0.65 and reliability_label in {"high", "medium"}:
+        return "prioritize"
+    if predicted_activity >= 0.65 and reliability_label != "low":
+        return "review"
+    if lower_bound >= 0.45 and reliability_label != "low":
+        return "review"
+    return "deprioritize"
+
+
 def _format_descriptor(value: Any) -> str:
     if value == "":
         return ""
     if isinstance(value, float):
         return f"{value:.4f}"
     return str(value)
+
+
+def _format_optional_float(value: float | None) -> str:
+    if value is None:
+        return ""
+    return f"{value:.4f}"
+
+
+def _prediction_interval_text(score: CandidateScore) -> str:
+    if score.prediction_lower is None or score.prediction_upper is None:
+        return ""
+    return f"[{score.prediction_lower:.4f}, {score.prediction_upper:.4f}]"
 
 
 def _html_summary(metadata: RunMetadata, metrics: ModelMetrics | None) -> str:
@@ -776,7 +1040,16 @@ def _html_summary(metadata: RunMetadata, metrics: ModelMetrics | None) -> str:
         ("Drug-likeness weight", f"{metadata.drug_likeness_weight:.2f}"),
         ("Random state", metadata.random_state),
         ("RDKit enabled", metadata.rdkit_enabled),
+        ("Conformal reliability", metadata.conformal_enabled),
     ]
+    if metadata.conformal_enabled:
+        metric_items.extend(
+            [
+                ("Conformal confidence", f"{metadata.conformal_confidence:.2f}"),
+                ("Residual quantile", f"{metadata.conformal_residual_quantile:.4f}"),
+                ("Applicability threshold", f"{metadata.applicability_threshold:.4f}"),
+            ]
+        )
     if metrics is not None:
         metric_items.extend(
             [
@@ -802,6 +1075,10 @@ def _html_score_table(scores: Sequence[CandidateScore], include_reason: bool) ->
         "Passes filters",
         "Lipinski",
         "Veber",
+        "Prediction interval",
+        "Applicability",
+        "Reliability",
+        "Decision",
     ]
     if include_reason:
         headers.append("Reason")
@@ -816,6 +1093,10 @@ def _html_score_table(scores: Sequence[CandidateScore], include_reason: bool) ->
             score.passes_filters,
             score.lipinski_violations,
             score.veber_violations,
+            _prediction_interval_text(score),
+            score.applicability_label,
+            score.reliability_label,
+            score.decision,
         ]
         if include_reason:
             values.append(rejection_reason(score))
@@ -850,6 +1131,17 @@ def _parse_args() -> argparse.Namespace:
         help="Final score weight for drug-likeness.",
     )
     parser.add_argument("--evaluate", action="store_true", help="Print leave-one-out model metrics.")
+    parser.add_argument(
+        "--conformal-confidence",
+        type=float,
+        default=DEFAULT_CONFORMAL_CONFIDENCE,
+        help="Confidence level for conformal prediction intervals.",
+    )
+    parser.add_argument(
+        "--disable-conformal-reliability",
+        action="store_true",
+        help="Disable conformal prediction intervals and applicability-domain labels.",
+    )
     parser.add_argument("--random-state", type=int, default=42, help="Random state used by ML models.")
     parser.add_argument("--output", type=Path, default=Path("candidate_molecules.csv"), help="Output CSV path.")
     parser.add_argument("--rejected-output", type=Path, help="Optional CSV path for rejected candidates.")
@@ -872,12 +1164,20 @@ def main() -> None:
     if args.evaluate and metrics is not None:
         print(f"Model metrics: n={metrics.n}, MAE={metrics.mae:.4f}, R2={metrics.r2:.4f}")
     model = train_activity_model(examples, random_state=args.random_state)
+    reliability_model = None
+    if not args.disable_conformal_reliability and len(examples) >= 4:
+        reliability_model = build_conformal_reliability_model(
+            examples,
+            confidence=args.conformal_confidence,
+            random_state=args.random_state,
+        )
     candidates = generate_candidates(seeds)
     all_scores = score_candidates(
         model,
         candidates,
         activity_weight=args.activity_weight,
         drug_likeness_weight=args.drug_likeness_weight,
+        reliability_model=reliability_model,
     )
     scores = all_scores[: args.top_n]
     metadata = RunMetadata(
@@ -891,6 +1191,10 @@ def main() -> None:
         drug_likeness_weight=args.drug_likeness_weight,
         random_state=args.random_state,
         rdkit_enabled=rdkit_available(),
+        conformal_enabled=reliability_model is not None,
+        conformal_confidence=reliability_model.confidence if reliability_model else None,
+        conformal_residual_quantile=reliability_model.residual_quantile if reliability_model else None,
+        applicability_threshold=reliability_model.in_domain_threshold if reliability_model else None,
     )
     write_scores(args.output, scores)
     print(f"Wrote {len(scores)} ranked candidates to {args.output}")
