@@ -14,10 +14,9 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from statistics import mean, median, stdev
-from typing import Iterable, Sequence
-
 
 TAILS = {"two-sided", "left", "right"}
 

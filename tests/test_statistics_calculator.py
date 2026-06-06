@@ -2,6 +2,9 @@ import math
 
 from statistics_calculator import (
     binomial_probability,
+    chi_square_goodness_of_fit,
+    chi_square_independence,
+    chi_square_test_variance,
     confidence_interval_mean,
     confidence_interval_proportion,
     confidence_interval_two_means_equal_variance,
@@ -9,15 +12,12 @@ from statistics_calculator import (
     confidence_interval_variance_summary,
     descriptive_stats,
     f_test_variances,
-    chi_square_goodness_of_fit,
-    chi_square_independence,
-    chi_square_test_variance,
     normal_probability,
     poisson_probability,
     student_t_cdf,
     t_test_two_means_equal_variance,
-    z_test_proportion,
     z_test_mean,
+    z_test_proportion,
     z_test_two_proportions,
 )
 

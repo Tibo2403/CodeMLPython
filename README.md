@@ -30,19 +30,25 @@ Other notebooks download their data directly from the UCI Machine Learning Repos
    pip install -r requirements.txt
    ```
 
-3. Optional: install the RDKit-enabled drug discovery environment:
+3. Optional: install development tooling for linting and audits:
+
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+4. Optional: install the RDKit-enabled drug discovery environment:
 
    ```bash
    pip install -r requirements-drug-discovery.txt
    ```
 
-4. Launch Jupyter:
+5. Launch Jupyter:
 
    ```bash
    jupyter notebook
    ```
 
-5. Open any `.ipynb` file and run it.
+6. Open any `.ipynb` file and run it.
 
 ## Statistics Calculator
 
@@ -147,6 +153,18 @@ Run the lightweight checks:
 
 ```bash
 python scripts/run_tests.py
+```
+
+Run the standard local verification suite:
+
+```bash
+python scripts/verify.py
+```
+
+Or, if `make` is available:
+
+```bash
+make verify
 ```
 
 If you have pytest installed, you can also run:

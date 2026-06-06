@@ -17,9 +17,10 @@ import html
 import json
 import math
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Protocol, Sequence
+from typing import Any, Protocol
 
 try:
     import numpy as np

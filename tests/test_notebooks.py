@@ -5,7 +5,6 @@ import nbformat
 import pytest
 from nbconvert import PythonExporter
 
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 NOTEBOOKS = [
     ROOT / path
