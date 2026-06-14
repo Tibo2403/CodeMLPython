@@ -2,6 +2,23 @@
 
 A collection of Jupyter notebooks demonstrating common machine-learning workflows on open health datasets.
 
+## Bayesian Optimization Hub
+
+This repository now highlights a reusable Bayesian optimization ecosystem for
+machine learning, AI cost reduction, defensive security scanning, and future
+drug discovery optimization.
+
+Start here:
+
+- [Bayesian Optimization Hub](BAYESIAN_OPTIMIZATION.md)
+- [Bayesian Quickstart](BAYESIAN_QUICKSTART.md)
+- [BayesCore reusable kernel](BayesianOptimizationSuite/BayesCore/README.md)
+- [Hyperparameter tuning extension](BayesianOptimizationSuite/HyperparameterBayesOptimizer/README.md)
+
+The shared kernel supports typed search spaces, Gaussian Process optimization,
+constraints, random-search baselines, Pareto fronts, JSON/CSV exports, and
+simple noise handling with `observation_repeats` and `gp_noise`.
+
 ## Notebooks
 
 | Notebook | Description |
